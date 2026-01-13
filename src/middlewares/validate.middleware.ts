@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { AnyZodObject, ZodError } from 'zod';
+import { ZodType, ZodError } from 'zod';
 
 /**
  * Middleware to validate request data using Zod schemas
  */
-export const validate = (schema: AnyZodObject) => {
+export const validate = (schema: ZodType<any>) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       await schema.parseAsync({
@@ -20,7 +20,7 @@ export const validate = (schema: AnyZodObject) => {
           error: {
             code: 'VALIDATION_ERROR',
             message: 'Invalid input data',
-            details: error.errors.map((err) => ({
+            details: error.issues.map((err) => ({
               field: err.path.join('.'),
               message: err.message,
             })),
