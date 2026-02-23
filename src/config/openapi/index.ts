@@ -34,14 +34,19 @@ export function generateOpenApiDocument() {
       },
     },
     servers: [
-      {
-        url: `http://localhost:${env.PORT}/api/${env.API_VERSION}`,
-        description: 'Development server',
-      },
-      {
-        url: `https://api.ecommerce.com/api/${env.API_VERSION}`,
-        description: 'Production server',
-      },
+      ...(env.NODE_ENV === 'production'
+        ? [
+            {
+              url: `${env.APP_URL}/api/${env.API_VERSION}`,
+              description: 'Production server',
+            },
+          ]
+        : [
+            {
+              url: `http://localhost:${env.PORT}/api/${env.API_VERSION}`,
+              description: 'Development server',
+            },
+          ]),
     ],
     tags: [
       { name: 'Authentication', description: 'Authentication and authorization endpoints' },

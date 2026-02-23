@@ -1,4 +1,7 @@
-import 'module-alias/register';
+// Only use module-alias in production (built code)
+if (process.env.NODE_ENV === 'production') {
+  require('module-alias/register');
+}
 import app from './app';
 import { env } from './config/env';
 
