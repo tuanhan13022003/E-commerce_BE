@@ -10,6 +10,7 @@ import {
 } from '@/validators/auth.validator';
 import { updateProfileSchema } from '@/validators/profile.validator';
 import { getProductsQuerySchema, getProductDetailParamsSchema } from '@/validators/products.validator';
+import { addToCartSchema, updateCartItemSchema, cartItemParamsSchema, getCartQuerySchema } from '@/validators/cart.validator';
 
 const registry = new OpenAPIRegistry();
 
@@ -138,6 +139,72 @@ registry.registerPath({
   responses: {
     200: { description: 'Product retrieved' },
     404: { description: 'Product not found' },
+  },
+});
+
+// Cart endpoints
+registry.registerPath({
+  method: 'get',
+  path: '/cart',
+  tags: ['Cart'],
+  security: [{ bearerAuth: [] }],
+  request: {
+    query: getCartQuerySchema,
+  },
+  responses: {
+    200: { description: 'Cart retrieved successfully with pagination' },
+    401: { description: 'Unauthorized' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/cart/items',
+  tags: ['Cart'],
+  security: [{ bearerAuth: [] }],
+  request: { body: { content: { 'application/json': { schema: addToCartSchema } } } },
+  responses: {
+    201: { description: 'Item added to cart' },
+    400: { description: 'Invalid product or insufficient stock' },
+    401: { description: 'Unauthorized' },
+    404: { description: 'Product not found' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/cart/items/{cartItemId}',
+  tags: ['Cart'],
+  security: [{ bearerAuth: [] }],
+  request: { body: { content: { 'application/json': { schema: updateCartItemSchema } } } },
+  responses: {
+    200: { description: 'Item quantity updated' },
+    400: { description: 'Invalid quantity or insufficient stock' },
+    401: { description: 'Unauthorized' },
+    404: { description: 'Item not found in cart' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/cart/items/{cartItemId}',
+  tags: ['Cart'],
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: { description: 'Item removed from cart' },
+    401: { description: 'Unauthorized' },
+    404: { description: 'Item not found in cart' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/cart',
+  tags: ['Cart'],
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: { description: 'Cart cleared successfully' },
+    401: { description: 'Unauthorized' },
   },
 });
 
