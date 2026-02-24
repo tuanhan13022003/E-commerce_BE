@@ -1,3 +1,6 @@
+// Set timezone to UTC for consistent date handling
+process.env.TZ = 'UTC';
+
 // Only use module-alias in production (built code)
 if (process.env.NODE_ENV === 'production') {
   require('module-alias/register');

@@ -160,7 +160,7 @@ class ProductsService {
     // Filter by minRating if specified (after aggregation)
     let filteredProducts = productsData;
     if (minRating !== undefined) {
-      filteredProducts = productsData.filter(p => Number(p.averageRating) >= minRating);
+      filteredProducts = productsData.filter(p => Number(p.averageRating) >= Number(minRating));
     }
 
        // Get primary images for all products

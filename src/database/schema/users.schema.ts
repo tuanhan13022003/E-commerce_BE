@@ -12,6 +12,8 @@ export const users = pgTable('users', {
   passwordHash: varchar('password_hash', { length: 255 }),
   fullName: varchar('full_name', { length: 255 }),
   avatarUrl: varchar('avatar_url', { length: 500 }),
+  address: varchar('address', { length: 500 }),
+  gender: varchar('gender', { length: 20 }),
 
   provider: varchar('provider', { length: 20 }).default('local'),
   providerId: varchar('provider_id', { length: 255 }),

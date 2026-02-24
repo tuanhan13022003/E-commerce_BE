@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes';
+import profileRoutes from './profile.routes';
 import productsRoutes from './products.routes';
 import categoriesRoutes from './categories.routes';
 import brandsRoutes from './brands.routes';
@@ -20,6 +21,7 @@ router.get('/health', (req, res) => {
 
 // Mount routes
 router.use('/auth', authRoutes);
+router.use('/profile', profileRoutes);
 router.use('/products', productsRoutes);
 router.use('/categories', categoriesRoutes);
 router.use('/brands', brandsRoutes);

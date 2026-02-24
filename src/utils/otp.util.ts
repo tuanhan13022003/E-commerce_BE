@@ -12,9 +12,7 @@ export const generateOtpCode = (): string => {
  * @returns Date object representing the expiration time
  */
 export const getOtpExpirationTime = (minutes: number = 5): Date => {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() + minutes);
-  return now;
+  return new Date(Date.now() + minutes * 60 * 1000);
 };
 
 /**

@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { db } from '@/config/database';
 import { users, otpVerifications } from '@/database/schema/users.schema';
 import { eq, and, or, desc } from 'drizzle-orm';
-import { generateOtpCode, getOtpExpirationTime, isOtpExpired } from '@/utils/otp.util';
+import { generateOtpCode, isOtpExpired } from '@/utils/otp.util';
 import { generateAccessToken, generateRefreshToken } from '@/utils/jwt.util';
 import { sendOtpEmail } from '@/utils/email.util';
 import { successResponse, errorResponse } from '@/utils/response.util';
@@ -47,7 +47,7 @@ class AuthService {
 
     // Generate OTP code
     const otpCode = generateOtpCode();
-    const expiresAt = getOtpExpirationTime(5);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     await db.insert(otpVerifications).values({
       userId: newUser.userId,
@@ -116,7 +116,7 @@ class AuthService {
 
     // Generate OTP
     const otpCode = generateOtpCode();
-    const expiresAt = getOtpExpirationTime(5);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     await db.insert(otpVerifications).values({
       userId: newUser.userId,
@@ -230,7 +230,7 @@ class AuthService {
     }
 
     const otpCode = generateOtpCode();
-    const expiresAt = getOtpExpirationTime(5);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     await db.insert(otpVerifications).values({
       userId: user.userId,

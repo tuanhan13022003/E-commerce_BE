@@ -6,7 +6,6 @@ import corsOptions from '@/config/cors';
 import { env } from '@/config/env';
 import routes from '@/routes';
 import { errorMiddleware, notFoundHandler } from '@/middlewares/error.middleware';
-import { generateOpenApiDocument } from '@/config/openapi';
 
 const app: Application = express();
 
@@ -18,12 +17,18 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Swagger Documentation (Generated from Zod schemas)
-const openApiDocument = generateOpenApiDocument();
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiDocument, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'E-Commerce API Docs',
-}));
+// Swagger Documentation (Auto-generated from validators)
+try {
+  const { generateOpenApiDocument } = require('@/config/openapi');
+  const openApiDocument = generateOpenApiDocument();
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiDocument, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'E-Commerce API Docs',
+  }));
+} catch (error) {
+  // Fallback if openapi config not available
+  console.warn('OpenAPI config not available, skipping Swagger docs');
+}
 
 // Logging middleware (development only)
 if (env.NODE_ENV === 'development') {
