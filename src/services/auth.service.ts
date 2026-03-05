@@ -1,12 +1,24 @@
-import bcrypt from 'bcryptjs';
+/**
+ * Authentication Service
+ * Uses helper functions to eliminate code duplication
+ * Handles auth business logic, transactions, tokens
+ */
+
+import { timingSafeEqual } from 'crypto';
+import jwt from 'jsonwebtoken';
 import { db } from '@/config/database';
 import { users, otpVerifications } from '@/database/schema/users.schema';
-import { eq, and, or, desc } from 'drizzle-orm';
-import { generateOtpCode, isOtpExpired } from '@/utils/otp.util';
-import { generateAccessToken, generateRefreshToken } from '@/utils/jwt.util';
-import { sendOtpEmail } from '@/utils/email.util';
-import { successResponse, errorResponse } from '@/utils/response.util';
+import { eq, and, desc } from 'drizzle-orm';
+import { isOtpExpired } from '@/utils/otp.util';
 import { AppError } from '@/middlewares/error.middleware';
+import {
+  verifyPassword,
+  createEmailUser,
+  createPhoneUser,
+  generateAndSendOtp,
+  generateAuthTokens,
+  formatUserResponse,
+} from '@/services/auth/auth.helpers';
 import type {
   RegisterEmailInput,
   RegisterPhoneInput,
@@ -16,131 +28,82 @@ import type {
   LoginPhoneInput
 } from '@/validators/auth.validator';
 
-
 class AuthService {
-  //registter with email
+  /**
+   * Register with email
+   * Uses transaction to ensure data consistency
+   * Uses helpers to reduce duplication
+   */
   async registerWithEmail(data: RegisterEmailInput) {
-    const existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, data.email))
-      .limit(1)
+    const userValues = await createEmailUser(data.email, data.password, data.fullName);
 
-    if (existingUser.length > 0) {
-      throw new AppError(409, 'EMAIL_ALREADY_EXISTS', 'Email already in use');
-    }
+    const [newUser] = await db.transaction(async (tx) => {
+      const [user] = await tx
+        .insert(users)
+        .values(userValues)
+        .returning();
 
-    const passWordHash = await bcrypt.hash(data.password, 10);
+      const otpCode = await generateAndSendOtp(data.email, 'register');
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    const [newUser] = await db
-      .insert(users)
-      .values({
+      await tx.insert(otpVerifications).values({
+        userId: user.userId,
         email: data.email,
-        passwordHash: passWordHash,
-        fullName: data.fullName,
-        provider: 'local',
+        otpCode,
+        purpose: 'register',
+        expiresAt,
         isVerified: false,
-        isActive: true,
-        role: 'customer',
-      })
-      .returning();
+      });
 
-    // Generate OTP code
-    const otpCode = generateOtpCode();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
-    await db.insert(otpVerifications).values({
-      userId: newUser.userId,
-      email: data.email,
-      otpCode,
-      purpose: 'register',
-      expiresAt,
-      isVerified: false,
+      return [user];
     });
-
-    //send OTP email
-    await sendOtpEmail(data.email, otpCode, 'register');
 
     return {
       success: true,
       message: 'Registration successful. Please verify your email with the OTP sent.',
-      data: {
-        userId: newUser.userId,
-        phone: newUser.phone,
-        email: newUser.email,
-      },
+      data: formatUserResponse(newUser),
     };
   }
 
   /**
-   * Register with phone number (requires email for OTP)
+   * Register with phone number
+   * Uses transaction to ensure data consistency
    */
   async registerWithPhone(data: RegisterPhoneInput) {
-    // Check if phone exists
-    const existingPhone = await db
-      .select()
-      .from(users)
-      .where(eq(users.phone, data.phone))
-      .limit(1);
+    const userValues = await createPhoneUser(data.email, data.phone, data.password, data.fullName);
 
-    if (existingPhone.length > 0) {
-      throw new AppError(409, 'PHONE_ALREADY_EXISTS', 'Phone number already in use');
-    }
+    const [newUser] = await db.transaction(async (tx) => {
+      const [user] = await tx
+        .insert(users)
+        .values(userValues)
+        .returning();
 
-    // Check if email exists
-    const existingEmail = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, data.email))
-      .limit(1);
+      const otpCode = await generateAndSendOtp(data.email, 'register');
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    if (existingEmail.length > 0) {
-      throw new AppError(409, 'EMAIL_ALREADY_EXISTS', 'Email already in use');
-    }
-
-    const passwordHash = await bcrypt.hash(data.password, 10);
-
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        phone: data.phone,
+      await tx.insert(otpVerifications).values({
+        userId: user.userId,
         email: data.email,
-        passwordHash,
-        fullName: data.fullName,
-        provider: 'local',
+        otpCode,
+        purpose: 'register',
+        expiresAt,
         isVerified: false,
-        isActive: true,
-        role: 'customer',
-      })
-      .returning();
+      });
 
-    // Generate OTP
-    const otpCode = generateOtpCode();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
-    await db.insert(otpVerifications).values({
-      userId: newUser.userId,
-      email: data.email,
-      otpCode,
-      purpose: 'register',
-      expiresAt,
-      isVerified: false,
+      return [user];
     });
-
-    // Send OTP via email
-    await sendOtpEmail(data.email, otpCode, 'register');
 
     return {
       success: true,
       message: 'Registration successful. Please verify your email with the OTP sent.',
-      data: {
-        userId: newUser.userId,
-        phone: newUser.phone,
-        email: newUser.email,
-      },
+      data: formatUserResponse(newUser),
     };
   }
 
+  /**
+   * Verify OTP and activate account
+   * Timing-safe OTP comparison
+   */
   async verifyOtp(data: VerifyOtpInput) {
     const [otpRecord] = await db
       .select()
@@ -163,7 +126,18 @@ class AuthService {
       throw new AppError(400, 'OTP_EXPIRED', 'OTP code has expired. Please request a new one');
     }
 
-    if (otpRecord.otpCode !== data.otpCode) {
+    // Timing-safe comparison
+    try {
+      const otpBuffer = Buffer.from(otpRecord.otpCode);
+      const inputBuffer = Buffer.from(data.otpCode);
+
+      if (otpBuffer.length !== inputBuffer.length) {
+        throw new AppError(400, 'OTP_INCORRECT', 'OTP code is incorrect');
+      }
+
+      timingSafeEqual(otpBuffer, inputBuffer);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
       throw new AppError(400, 'OTP_INCORRECT', 'OTP code is incorrect');
     }
 
@@ -181,38 +155,20 @@ class AuthService {
       .set({ isVerified: true })
       .where(eq(otpVerifications.otpId, otpRecord.otpId));
 
-    const payload = {
-      userId: updatedUser.userId,
-      email: updatedUser.email,
-      phone: updatedUser.phone,
-      role: updatedUser.role!,
-    };
+    const tokens = generateAuthTokens(updatedUser);
 
-    const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
-
-    // 7. Return
     return {
       success: true,
       message: 'Verification successful',
       data: {
-        user: {
-          userId: updatedUser.userId,
-          email: updatedUser.email,
-          phone: updatedUser.phone,
-          fullName: updatedUser.fullName,
-          role: updatedUser.role,
-        },
-        tokens: {
-          accessToken,
-          refreshToken,
-        },
+        user: formatUserResponse(updatedUser),
+        tokens,
       },
     };
   }
 
   /**
-   * Gửi lại OTP
+   * Resend OTP
    */
   async resendOtp(data: ResendOtpInput) {
     const [user] = await db
@@ -229,7 +185,7 @@ class AuthService {
       throw new AppError(400, 'ALREADY_VERIFIED', 'Account is already verified');
     }
 
-    const otpCode = generateOtpCode();
+    const otpCode = await generateAndSendOtp(data.email, 'register');
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     await db.insert(otpVerifications).values({
@@ -241,8 +197,6 @@ class AuthService {
       isVerified: false,
     });
 
-    await sendOtpEmail(data.email, otpCode, 'register');
-
     return {
       success: true,
       message: 'New OTP code has been sent to your email',
@@ -251,9 +205,9 @@ class AuthService {
 
   /**
    * Login with email and password
+   * Uses helper for password verification
    */
   async loginWithEmail(data: LoginEmailInput) {
-    // 1. Find user by email
     const [user] = await db
       .select()
       .from(users)
@@ -264,64 +218,41 @@ class AuthService {
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password');
     }
 
-    // 2. Check if user is verified
     if (!user.isVerified) {
       throw new AppError(403, 'EMAIL_NOT_VERIFIED', 'Please verify your email before logging in');
     }
 
-    // 3. Check if user is active
     if (!user.isActive) {
       throw new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled');
     }
 
-    // 4. Verify password
-    const isPasswordValid = await bcrypt.compare(data.password, user.passwordHash!);
+    const isPasswordValid = await verifyPassword(data.password, user.passwordHash!);
     if (!isPasswordValid) {
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password');
     }
 
-    // 5. Update last login time
     await db
       .update(users)
       .set({ lastLoginAt: new Date() })
       .where(eq(users.userId, user.userId));
 
-    // 6. Generate tokens
-    const payload = {
-      userId: user.userId,
-      email: user.email,
-      phone: user.phone,
-      role: user.role!,
-    };
+    const tokens = generateAuthTokens(user);
 
-    const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
-
-    // 7. Return user info and tokens
     return {
       success: true,
       message: 'Login successful',
       data: {
-        user: {
-          userId: user.userId,
-          email: user.email,
-          phone: user.phone,
-          fullName: user.fullName,
-          role: user.role,
-        },
-        tokens: {
-          accessToken,
-          refreshToken,
-        },
+        user: formatUserResponse(user),
+        tokens,
       },
     };
   }
 
   /**
    * Login with phone and password
+   * Uses helper for password verification
    */
   async loginWithPhone(data: LoginPhoneInput) {
-    // 1. Find user by phone
     const [user] = await db
       .select()
       .from(users)
@@ -332,65 +263,64 @@ class AuthService {
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid phone or password');
     }
 
-    // 2. Check if user is verified
     if (!user.isVerified) {
       throw new AppError(403, 'EMAIL_NOT_VERIFIED', 'Please verify your email before logging in');
     }
 
-    // 3. Check if user is active
     if (!user.isActive) {
       throw new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled');
     }
 
-    // 4. Verify password
-    const isPasswordValid = await bcrypt.compare(data.password, user.passwordHash!);
+    const isPasswordValid = await verifyPassword(data.password, user.passwordHash!);
     if (!isPasswordValid) {
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid phone or password');
     }
 
-    // 5. Update last login time
     await db
       .update(users)
       .set({ lastLoginAt: new Date() })
       .where(eq(users.userId, user.userId));
 
-    // 6. Generate tokens
-    const payload = {
-      userId: user.userId,
-      email: user.email,
-      phone: user.phone,
-      role: user.role!,
-    };
+    const tokens = generateAuthTokens(user);
 
-    const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
-
-    // 7. Return user info and tokens
     return {
       success: true,
       message: 'Login successful',
       data: {
-        user: {
-          userId: user.userId,
-          email: user.email,
-          phone: user.phone,
-          fullName: user.fullName,
-          role: user.role,
-        },
-        tokens: {
-          accessToken,
-          refreshToken,
-        },
+        user: formatUserResponse(user),
+        tokens,
       },
     };
   }
 
   /**
-   * Logout - Invalidate tokens (can be enhanced with token blacklist)
+   * Logout - Blacklist tokens
    */
-  async logout() {
-    // TODO: Implement token blacklist in Redis for invalidating tokens
-    // For now, just return success - client should delete tokens
+  async logout(accessToken: string, refreshToken?: string) {
+    const { blacklistToken } = await import('@/config/redis');
+
+    try {
+      const decoded = jwt.decode(accessToken) as { exp?: number };
+      if (decoded?.exp) {
+        const expirySeconds = Math.ceil(decoded.exp - Date.now() / 1000);
+        if (expirySeconds > 0) {
+          await blacklistToken(accessToken, expirySeconds);
+        }
+      }
+
+      if (refreshToken) {
+        const refreshDecoded = jwt.decode(refreshToken) as { exp?: number };
+        if (refreshDecoded?.exp) {
+          const refreshExpirySeconds = Math.ceil(refreshDecoded.exp - Date.now() / 1000);
+          if (refreshExpirySeconds > 0) {
+            await blacklistToken(refreshToken, refreshExpirySeconds);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error blacklisting tokens:', error);
+    }
+
     return {
       success: true,
       message: 'Logout successful',

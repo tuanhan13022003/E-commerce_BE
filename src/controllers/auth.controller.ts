@@ -196,6 +196,7 @@ class AuthController {
   /**
    * Logout
    * POST /api/v1/auth/logout
+   * Blacklists tokens to invalidate them
    */
   async logout(req: Request, res: Response, next: NextFunction) {
     // #swagger.tags = ['Authentication']
@@ -222,7 +223,16 @@ class AuthController {
     } */
     try {
       logoutSchema.parse(req.body);
-      const result = await authService.logout();
+
+      // Get token from Authorization header and blacklist it
+      const authHeader = req.headers.authorization;
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : '';
+      const { accessToken, refreshToken } = req.body;
+
+      const result = await authService.logout(
+        accessToken || token,
+        refreshToken
+      );
       res.status(200).json(result);
     } catch (error) {
       next(error);

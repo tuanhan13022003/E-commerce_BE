@@ -1,215 +1,36 @@
+/**
+ * OpenAPI / Swagger Documentation
+ * Aggregates all endpoint definitions
+ */
+
 import { OpenAPIRegistry, OpenApiGeneratorV3 } from '@asteasolutions/zod-to-openapi';
-import {
-  registerEmailSchema,
-  registerPhoneSchema,
-  verifyOtpSchema,
-  resendOtpSchema,
-  loginEmailSchema,
-  loginPhoneSchema,
-  logoutSchema,
-} from '@/validators/auth.validator';
-import { updateProfileSchema } from '@/validators/profile.validator';
-import { getProductsQuerySchema, getProductDetailParamsSchema } from '@/validators/products.validator';
-import { addToCartSchema, updateCartItemSchema, cartItemParamsSchema, getCartQuerySchema } from '@/validators/cart.validator';
+import { env } from '@/config/env';
+import { registerAuthEndpoints } from './openapi/auth.endpoints';
+import { registerProfileEndpoints } from './openapi/profile.endpoints';
+import { registerProductsEndpoints } from './openapi/products.endpoints';
+import { registerCartEndpoints } from './openapi/cart.endpoints';
 
 const registry = new OpenAPIRegistry();
 
-// Auth endpoints
-registry.registerPath({
-  method: 'post',
-  path: '/auth/register/email',
-  tags: ['Authentication'],
-  request: { body: { content: { 'application/json': { schema: registerEmailSchema } } } },
-  responses: {
-    201: { description: 'User registered successfully' },
-    400: { description: 'Validation error' },
-  },
-});
-
-registry.registerPath({
-  method: 'post',
-  path: '/auth/register/phone',
-  tags: ['Authentication'],
-  request: { body: { content: { 'application/json': { schema: registerPhoneSchema } } } },
-  responses: {
-    201: { description: 'User registered successfully' },
-    400: { description: 'Validation error' },
-  },
-});
-
-registry.registerPath({
-  method: 'post',
-  path: '/auth/verify-otp',
-  tags: ['Authentication'],
-  request: { body: { content: { 'application/json': { schema: verifyOtpSchema } } } },
-  responses: {
-    200: { description: 'OTP verified successfully' },
-    400: { description: 'Invalid OTP' },
-  },
-});
-
-registry.registerPath({
-  method: 'post',
-  path: '/auth/resend-otp',
-  tags: ['Authentication'],
-  request: { body: { content: { 'application/json': { schema: resendOtpSchema } } } },
-  responses: {
-    200: { description: 'OTP resent successfully' },
-    404: { description: 'User not found' },
-  },
-});
-
-registry.registerPath({
-  method: 'post',
-  path: '/auth/login/email',
-  tags: ['Authentication'],
-  request: { body: { content: { 'application/json': { schema: loginEmailSchema } } } },
-  responses: {
-    200: { description: 'Login successful' },
-    401: { description: 'Invalid credentials' },
-  },
-});
-
-registry.registerPath({
-  method: 'post',
-  path: '/auth/login/phone',
-  tags: ['Authentication'],
-  request: { body: { content: { 'application/json': { schema: loginPhoneSchema } } } },
-  responses: {
-    200: { description: 'Login successful' },
-    401: { description: 'Invalid credentials' },
-  },
-});
-
-registry.registerPath({
-  method: 'post',
-  path: '/auth/logout',
-  tags: ['Authentication'],
-  security: [{ bearerAuth: [] }],
-  responses: {
-    200: { description: 'Logout successful' },
-  },
-});
-
-// Profile endpoints
-registry.registerPath({
-  method: 'get',
-  path: '/profile',
-  tags: ['Profile'],
-  security: [{ bearerAuth: [] }],
-  responses: {
-    200: { description: 'Profile retrieved successfully' },
-    401: { description: 'Unauthorized' },
-  },
-});
-
-registry.registerPath({
-  method: 'patch',
-  path: '/profile',
-  tags: ['Profile'],
-  security: [{ bearerAuth: [] }],
-  request: { body: { content: { 'application/json': { schema: updateProfileSchema } } } },
-  responses: {
-    200: { description: 'Profile updated successfully' },
-    401: { description: 'Unauthorized' },
-    404: { description: 'User not found' },
-  },
-});
-
-// Add Products endpoints
-registry.registerPath({
-  method: 'get',
-  path: '/products',
-  tags: ['Products'],
-  request: {
-    query: getProductsQuerySchema,
-  },
-  responses: {
-    200: { description: 'Products list retrieved' },
-  },
-});
-
-registry.registerPath({
-  method: 'get',
-  path: '/products/{identifier}',
-  tags: ['Products'],
-  request: {
-    params: getProductDetailParamsSchema,
-  },
-  responses: {
-    200: { description: 'Product retrieved' },
-    404: { description: 'Product not found' },
-  },
-});
-
-// Cart endpoints
-registry.registerPath({
-  method: 'get',
-  path: '/cart',
-  tags: ['Cart'],
-  security: [{ bearerAuth: [] }],
-  request: {
-    query: getCartQuerySchema,
-  },
-  responses: {
-    200: { description: 'Cart retrieved successfully with pagination' },
-    401: { description: 'Unauthorized' },
-  },
-});
-
-registry.registerPath({
-  method: 'post',
-  path: '/cart/items',
-  tags: ['Cart'],
-  security: [{ bearerAuth: [] }],
-  request: { body: { content: { 'application/json': { schema: addToCartSchema } } } },
-  responses: {
-    201: { description: 'Item added to cart' },
-    400: { description: 'Invalid product or insufficient stock' },
-    401: { description: 'Unauthorized' },
-    404: { description: 'Product not found' },
-  },
-});
-
-registry.registerPath({
-  method: 'patch',
-  path: '/cart/items/{cartItemId}',
-  tags: ['Cart'],
-  security: [{ bearerAuth: [] }],
-  request: { body: { content: { 'application/json': { schema: updateCartItemSchema } } } },
-  responses: {
-    200: { description: 'Item quantity updated' },
-    400: { description: 'Invalid quantity or insufficient stock' },
-    401: { description: 'Unauthorized' },
-    404: { description: 'Item not found in cart' },
-  },
-});
-
-registry.registerPath({
-  method: 'delete',
-  path: '/cart/items/{cartItemId}',
-  tags: ['Cart'],
-  security: [{ bearerAuth: [] }],
-  responses: {
-    200: { description: 'Item removed from cart' },
-    401: { description: 'Unauthorized' },
-    404: { description: 'Item not found in cart' },
-  },
-});
-
-registry.registerPath({
-  method: 'delete',
-  path: '/cart',
-  tags: ['Cart'],
-  security: [{ bearerAuth: [] }],
-  responses: {
-    200: { description: 'Cart cleared successfully' },
-    401: { description: 'Unauthorized' },
-  },
-});
+// ============ Register All Endpoints ============
+registerAuthEndpoints(registry);
+registerProfileEndpoints(registry);
+registerProductsEndpoints(registry);
+registerCartEndpoints(registry);
 
 export function generateOpenApiDocument() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
+
+  // Determine base URL based on environment
+  const getBaseUrl = (): string => {
+    if (env.NODE_ENV === 'production') {
+      return process.env.API_URL || 'https://api.example.com';
+    }
+    return `http://localhost:${process.env.PORT || 5000}`;
+  };
+
+  const baseUrl = getBaseUrl();
+
   const doc = generator.generateDocument({
     openapi: '3.0.0',
     info: {
@@ -217,7 +38,12 @@ export function generateOpenApiDocument() {
       title: 'E-Commerce API',
       description: 'API documentation for E-Commerce platform',
     },
-    servers: [{ url: 'http://localhost:5000/api/v1' }],
+    servers: [
+      {
+        url: `${baseUrl}/api/${env.API_VERSION}`,
+        description: env.NODE_ENV === 'production' ? 'Production Server' : 'Development Server',
+      },
+    ],
   });
 
   // Add security schemes

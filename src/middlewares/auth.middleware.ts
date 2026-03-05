@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '@/config/env';
+import { isTokenBlacklisted } from '@/config/redis';
 
 // Extend Express Request type to include user
 declare global {
@@ -18,6 +19,7 @@ declare global {
 
 /**
  * Middleware to verify JWT token and attach user to request
+ * Checks token blacklist to enforce logout
  */
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -34,6 +36,18 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
 
     // Extract token
     const token = authHeader.substring(7);
+
+    // Check if token is blacklisted (logged out)
+    const blacklisted = await isTokenBlacklisted(token);
+    if (blacklisted) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'TOKEN_REVOKED',
+          message: 'Token has been revoked. Please login again.',
+        },
+      });
+    }
 
     // Verify token
     const decoded = jwt.verify(token, env.JWT_SECRET!) as {
@@ -89,19 +103,25 @@ export const requireRole = (roles: string[]) => {
 
 /**
  * Optional auth - doesn't fail if no token, but attaches user if valid
+ *  Also checks token blacklist
  */
 export const optionalAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      const decoded = jwt.verify(token, env.JWT_SECRET!) as {
-        userId: number;
-        email: string | null;
-        phone: string | null;
-        role: string;
-      };
-      req.user = decoded;
+
+      // Check if token is blacklisted
+      const blacklisted = await isTokenBlacklisted(token);
+      if (!blacklisted) {
+        const decoded = jwt.verify(token, env.JWT_SECRET!) as {
+          userId: number;
+          email: string | null;
+          phone: string | null;
+          role: string;
+        };
+        req.user = decoded;
+      }
     }
     next();
   } catch (error) {

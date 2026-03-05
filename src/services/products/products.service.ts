@@ -1,187 +1,70 @@
-import { db } from '@/config/database';
-import { products, categories, brands, productImages, productReviews } from '@/database/schema/products.schema';
-import { eq, and, gte, lte, inArray, ilike, desc, asc, sql, isNull, or, isNotNull, is } from 'drizzle-orm';
+/**
+ * Products Service
+ * Uses repository pattern for database abstraction
+ * Handles business logic, formatting, and aggregation
+ */
+
 import { AppError } from '@/middlewares/error.middleware';
-import {getProductsQuerySchema} from '@/validators/products.validator';
+import { getProductsQuerySchema } from '@/validators/products.validator';
 import { z } from 'zod';
+import productsRepository, { ProductFilters } from '@/repositories/products.repository';
 
 class ProductsService {
-    // Get products with filters, pagination, and sorting
-    async getProducts(query: z.infer<typeof getProductsQuerySchema>) {
+  /**
+   * Constructor - inject repository
+   * Dependency Injection: makes service testable
+   */
+  constructor(private productsRepo = productsRepository) {}
 
-        const{
-            page,
-            pageSize,
-            categoryId,
-            brandId,
-            minPrice,
-            maxPrice,
-            minRating,
-            sortBy,
-            sortOrder,
-            search,
-            isFeatured,
-            isNew,
-            isBestseller,
-            isActive
-        } = query;
+  /**
+   * Get products with filters, pagination, and sorting
+   */
+  async getProducts(query: z.infer<typeof getProductsQuerySchema>) {
+    const {
+      page,
+      pageSize,
+      categoryId,
+      brandId,
+      minPrice,
+      maxPrice,
+      minRating,
+      sortBy,
+      sortOrder,
+      search,
+      isFeatured,
+      isNew,
+      isBestseller,
+      isActive
+    } = query;
 
-        // Build conditions
-        const conditions = [];
+    // Build filter object
+    const filters: ProductFilters = {
+      page,
+      pageSize,
+      categoryId,
+      brandId,
+      minPrice,
+      maxPrice,
+      minRating,
+      sortBy,
+      sortOrder,
+      search,
+      isFeatured,
+      isNew,
+      isBestseller,
+      isActive
+    };
 
-        //Active filter
-        conditions.push(eq(products.isActive, isActive));
+    // Get products from repository
+    const { products: productsData, totalCount } = await this.productsRepo.getProducts(filters);
 
-        // Category filter
-        if(categoryId !== undefined){
-            conditions.push(eq(products.categoryId, categoryId));
-        }
-
-        // Brand filter
-        if(brandId !== undefined && brandId.length > 0){
-            conditions.push(inArray(products.brandId, brandId));
-        }
-        
-        // Price range filter
-        if(minPrice !== undefined){
-            conditions.push(
-                or(
-                    and(isNotNull(products.salePrice), gte(products.salePrice, minPrice.toString())),
-          and(isNull(products.salePrice), gte(products.originalPrice, minPrice.toString()))
-                )
-            )
-        }
-
-        if(maxPrice !== undefined){
-            conditions.push(
-                or(
-                    and(isNotNull(products.salePrice), lte(products.salePrice, maxPrice.toString())),
-                    and(isNull(products.salePrice), lte(products.originalPrice, maxPrice.toString()))
-                )
-            )
-        }
-
-        // FEatureD, NEW, BESTSELLER filters
-        if(isFeatured !== undefined){
-            conditions.push(eq(products.isFeatured, isFeatured));
-        }
-        if(isNew !== undefined){
-            conditions.push(eq(products.isNew, isNew));
-        }
-        if(isBestseller !== undefined){
-            conditions.push(eq(products.isBestseller, isBestseller));
-        }
-
-        // Search filter
-        if(search){
-            conditions.push(ilike(products.productName, `%${search}%`));
-        }
-        
-        // Build base query
-        let orderBy;
-        switch (sortBy) {
-      case 'price':
-        // Sort by sale_price if exists, otherwise original_price
-        orderBy = sortOrder === 'asc' 
-          ? asc(sql`COALESCE(${products.salePrice}, ${products.originalPrice})`)
-          : desc(sql`COALESCE(${products.salePrice}, ${products.originalPrice})`);
-        break;
-      case 'rating':
-        orderBy = sortOrder === 'asc' 
-          ? asc(sql`COALESCE((SELECT AVG(rating) FROM product_reviews WHERE product_id = ${products.productId} AND is_approved = true), 0)`)
-          : desc(sql`COALESCE((SELECT AVG(rating) FROM product_reviews WHERE product_id = ${products.productId} AND is_approved = true), 0)`);
-        break;
-      case 'popular':
-        orderBy = desc(products.soldQuantity);
-        break;
-      case 'discount':
-        orderBy = desc(products.discountPercent);
-        break;
-      case 'name':
-        orderBy = sortOrder === 'asc' ? asc(products.productName) : desc(products.productName);
-        break;
-      case 'newest':
-      default:
-        orderBy = desc(products.createdAt);
-        break;
-    }
-
-     // Calculate pagination
-    const offset = (page - 1) * pageSize;
-
-    // Execute query with joins and aggregated rating
-    const [productsData, totalCountResult] = await Promise.all([
-      // Get products with category, brand, and rating info
-      db
-        .select({
-          productId: products.productId,
-          productName: products.productName,
-          slug: products.slug,
-          shortDescription: products.shortDescription,
-          originalPrice: products.originalPrice,
-          salePrice: products.salePrice,
-          discountPercent: products.discountPercent,
-          stockQuantity: products.stockQuantity,
-          soldQuantity: products.soldQuantity,
-          isFeatured: products.isFeatured,
-          isNew: products.isNew,
-          isBestseller: products.isBestseller,
-          createdAt: products.createdAt,
-          category: {
-            categoryId: categories.categoryId,
-            categoryName: categories.categoryName,
-            slug: categories.slug
-          },
-          brand: {
-            brandId: brands.brandId,
-            brandName: brands.brandName,
-            slug: brands.slug,
-            logoUrl: brands.logoUrl
-          },
-          // Aggregate rating and review count
-          averageRating: sql<number>`COALESCE((SELECT AVG(rating) FROM product_reviews WHERE product_id = ${products.productId} AND is_approved = true), 0)`,
-          totalReviews: sql<number>`COALESCE((SELECT COUNT(*) FROM product_reviews WHERE product_id = ${products.productId} AND is_approved = true), 0)`
-        })
-        .from(products)
-        .leftJoin(categories, eq(products.categoryId, categories.categoryId))
-        .leftJoin(brands, eq(products.brandId, brands.brandId))
-        .where(and(...conditions))
-        .orderBy(orderBy)
-        .limit(pageSize)
-        .offset(offset),
-
-      // Get total count for pagination
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(products)
-        .where(and(...conditions))
-    ]);
-
-    // Filter by minRating if specified (after aggregation)
-    let filteredProducts = productsData;
-    if (minRating !== undefined) {
-      filteredProducts = productsData.filter(p => Number(p.averageRating) >= Number(minRating));
-    }
-
-       // Get primary images for all products
-    const productIds = filteredProducts.map(p => p.productId);
-    const images = productIds.length > 0 
-      ? await db
-          .select()
-          .from(productImages)
-          .where(
-            and(
-              inArray(productImages.productId, productIds),
-              eq(productImages.isPrimary, true)
-            )
-          )
-      : [];
-
-    // Map images to products
+    // Get primary images for paginated products (single batch query)
+    const productIds = productsData.map(p => p.productId);
+    const images = await this.productsRepo.getImagesByProductIds(productIds);
     const imageMap = new Map(images.map(img => [img.productId, img.imageUrl]));
 
     // Format response
-    const formattedProducts = filteredProducts.map(product => ({
+    const formattedProducts = productsData.map(product => ({
       productId: product.productId,
       productName: product.productName,
       slug: product.slug,
@@ -203,7 +86,6 @@ class ProductsService {
       createdAt: product.createdAt
     }));
 
-    const totalCount = totalCountResult[0]?.count || 0;
     const totalPages = Math.ceil(totalCount / pageSize);
 
     return {
@@ -233,72 +115,21 @@ class ProductsService {
     };
   }
 
-   // Get product detail by ID or slug
+  /**
+   * Get product detail by ID or slug
+   */
   async getProductDetail(identifier: string) {
-    // Check if identifier is number (ID) or slug
-    const isNumeric = /^\d+$/.test(identifier);
-    const condition = isNumeric 
-      ? eq(products.productId, Number(identifier))
-      : eq(products.slug, identifier);
-
-    const [product] = await db
-      .select({
-        productId: products.productId,
-        productName: products.productName,
-        slug: products.slug,
-        sku: products.sku,
-        description: products.description,
-        shortDescription: products.shortDescription,
-        originalPrice: products.originalPrice,
-        salePrice: products.salePrice,
-        discountPercent: products.discountPercent,
-        stockQuantity: products.stockQuantity,
-        soldQuantity: products.soldQuantity,
-        viewCount: products.viewCount,
-        isFeatured: products.isFeatured,
-        isNew: products.isNew,
-        isBestseller: products.isBestseller,
-        isActive: products.isActive,
-        videoUrl: products.videoUrl,
-        createdAt: products.createdAt,
-        category: {
-          categoryId: categories.categoryId,
-          categoryName: categories.categoryName,
-          slug: categories.slug,
-          imageUrl: categories.imageUrl
-        },
-        brand: {
-          brandId: brands.brandId,
-          brandName: brands.brandName,
-          slug: brands.slug,
-          logoUrl: brands.logoUrl,
-          description: brands.description
-        },
-        averageRating: sql<number>`COALESCE((SELECT AVG(rating) FROM product_reviews WHERE product_id = ${products.productId} AND is_approved = true), 0)`,
-        totalReviews: sql<number>`COALESCE((SELECT COUNT(*) FROM product_reviews WHERE product_id = ${products.productId} AND is_approved = true), 0)`
-      })
-      .from(products)
-      .leftJoin(categories, eq(products.categoryId, categories.categoryId))
-      .leftJoin(brands, eq(products.brandId, brands.brandId))
-      .where(condition)
-      .limit(1);
+    const product = await this.productsRepo.getProductDetail(identifier);
 
     if (!product) {
       throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Product not found');
     }
 
     // Get all images for this product
-    const images = await db
-      .select()
-      .from(productImages)
-      .where(eq(productImages.productId, product.productId))
-      .orderBy(asc(productImages.displayOrder));
+    const images = await this.productsRepo.getProductImages(product.productId);
 
-    // Update view count
-    await db
-      .update(products)
-      .set({ viewCount: sql`${products.viewCount} + 1` })
-      .where(eq(products.productId, product.productId));
+    // Fire-and-forget view count increment
+    this.productsRepo.incrementViewCount(product.productId);
 
     return {
       success: true,
@@ -338,8 +169,8 @@ class ProductsService {
   }
 }
 
+// Export singleton instance for backward compatibility
 export default new ProductsService();
 
-
-
-
+// Export factory for testing/DI
+export const createProductsService = (repo = productsRepository) => new ProductsService(repo);

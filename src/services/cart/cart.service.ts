@@ -7,6 +7,12 @@ import { AddToCartInput, UpdateCartItemInput, GetCartQuery } from '@/validators/
 
 class CartService {
   /**
+   * Constructor - inject database (for DI/testing)
+   * Dependency Injection: makes service testable
+   */
+  constructor(private database = db) {}
+
+  /**
    * Get user's cart with all items and calculated totals, with filtering and pagination
    */
   async getCart(userId: number, query?: GetCartQuery) {
