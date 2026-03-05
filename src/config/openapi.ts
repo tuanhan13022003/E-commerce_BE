@@ -23,10 +23,12 @@ export function generateOpenApiDocument() {
 
   // Determine base URL based on environment
   const getBaseUrl = (): string => {
-    if (env.NODE_ENV === 'production') {
-      return process.env.API_URL || 'https://api.example.com';
-    }
-    return `http://localhost:${process.env.PORT || 5000}`;
+    // Try API_URL first, then APP_URL (for Render compatibility)
+    const apiUrl = process.env.API_URL || process.env.APP_URL ||
+      (env.NODE_ENV === 'production'
+        ? 'https://your-api-domain.com'
+        : `http://localhost:${process.env.PORT || 5000}`);
+    return apiUrl;
   };
 
   const baseUrl = getBaseUrl();
